@@ -41,7 +41,6 @@ const DefaultGracePeriodSeconds int64 = 30
 
 // VirtualMachineInstance is *the* VirtualMachineInstance Definition. It represents a virtual machine in the runtime environment of kubernetes.
 //
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +genclient
 // +genclient:noStatus
 type VirtualMachineInstance struct {
@@ -63,7 +62,6 @@ func (v *VirtualMachineInstance) UnmarshalBinary(data []byte) error {
 
 // VirtualMachineInstanceList is a list of VirtualMachines
 //
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type VirtualMachineInstanceList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
@@ -1616,7 +1614,6 @@ func PrepareVMINodeAntiAffinitySelectorRequirement(vmi *VirtualMachineInstance) 
 
 // VirtualMachineInstance is *the* VirtualMachineInstance Definition. It represents a virtual machine in the runtime environment of kubernetes.
 //
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +genclient
 type VirtualMachineInstanceReplicaSet struct {
 	metav1.TypeMeta   `json:",inline"`
@@ -1630,7 +1627,6 @@ type VirtualMachineInstanceReplicaSet struct {
 
 // VMIList is a list of VMIs
 //
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type VirtualMachineInstanceReplicaSetList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
@@ -1725,7 +1721,6 @@ type VirtualMachineInstanceTemplateSpec struct {
 // VirtualMachineInstanceMigration represents the object tracking a VMI's migration
 // to another host in the cluster
 //
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +genclient
 type VirtualMachineInstanceMigration struct {
 	metav1.TypeMeta   `json:",inline"`
@@ -1736,7 +1731,6 @@ type VirtualMachineInstanceMigration struct {
 
 // VirtualMachineInstanceMigrationList is a list of VirtualMachineMigrations
 //
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type VirtualMachineInstanceMigrationList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
@@ -1864,7 +1858,6 @@ func (m *VirtualMachineInstanceMigration) IsDecentralized() bool {
 // VirtualMachineInstancePreset defines a VMI spec.domain to be applied to all VMIs that match the provided label selector
 // More info: https://kubevirt.io/user-guide/virtual_machines/presets/#overrides
 //
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +genclient
 type VirtualMachineInstancePreset struct {
 	metav1.TypeMeta   `json:",inline"`
@@ -1875,7 +1868,6 @@ type VirtualMachineInstancePreset struct {
 
 // VirtualMachineInstancePresetList is a list of VirtualMachinePresets
 //
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type VirtualMachineInstancePresetList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
@@ -1913,7 +1905,6 @@ func NewVirtualMachinePreset(name string, selector metav1.LabelSelector) *Virtua
 // VirtualMachineInstance. It also mirrors the running state of the created
 // VirtualMachineInstance in its status.
 //
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +genclient
 type VirtualMachine struct {
 	metav1.TypeMeta   `json:",inline"`
@@ -1947,7 +1938,6 @@ func (vm *VirtualMachine) RunStrategy() (VirtualMachineRunStrategy, error) {
 
 // VirtualMachineList is a list of virtualmachines
 //
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type VirtualMachineList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
@@ -2414,7 +2404,6 @@ type Probe struct {
 
 // KubeVirt represents the object deploying all KubeVirt resources
 //
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +genclient
 type KubeVirt struct {
 	metav1.TypeMeta   `json:",inline"`
@@ -2425,7 +2414,6 @@ type KubeVirt struct {
 
 // KubeVirtList is a list of KubeVirts
 //
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type KubeVirtList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
@@ -2719,6 +2707,7 @@ const (
 )
 
 // RestartOptions may be provided when deleting an API object.
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type RestartOptions struct {
 	metav1.TypeMeta `json:",inline"`
 
@@ -2741,6 +2730,7 @@ type RestartOptions struct {
 }
 
 // StartOptions may be provided on start request.
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type StartOptions struct {
 	metav1.TypeMeta `json:",inline"`
 
@@ -2758,6 +2748,7 @@ type StartOptions struct {
 }
 
 // PauseOptions may be provided on pause request.
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type PauseOptions struct {
 	metav1.TypeMeta `json:",inline"`
 
@@ -2772,6 +2763,7 @@ type PauseOptions struct {
 }
 
 // UnpauseOptions may be provided on unpause request.
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type UnpauseOptions struct {
 	metav1.TypeMeta `json:",inline"`
 
@@ -2791,6 +2783,7 @@ const (
 )
 
 // StopOptions may be provided when deleting an API object.
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type StopOptions struct {
 	metav1.TypeMeta `json:",inline"`
 
@@ -2808,6 +2801,7 @@ type StopOptions struct {
 }
 
 // MigrateOptions may be provided on migrate request.
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type MigrateOptions struct {
 	metav1.TypeMeta `json:",inline"`
 	// When present, indicates that modifications should not be
@@ -2846,7 +2840,6 @@ type EvacuateCancelOptions struct {
 
 // VirtualMachineInstanceGuestAgentInfo represents information from the installed guest agent
 //
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type VirtualMachineInstanceGuestAgentInfo struct {
 	metav1.TypeMeta `json:",inline"`
 	// GAVersion is a version of currently installed guest agent
@@ -2878,7 +2871,6 @@ type GuestAgentCommandInfo struct {
 
 // VirtualMachineInstanceGuestOSUserList comprises the list of all active users on guest machine
 //
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type VirtualMachineInstanceGuestOSUserList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
@@ -2901,7 +2893,6 @@ type VirtualMachineInstanceFileSystemInfo struct {
 
 // VirtualMachineInstanceFileSystemList comprises the list of all filesystems on guest machine
 //
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type VirtualMachineInstanceFileSystemList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
@@ -3830,7 +3821,6 @@ type LiveUpdateConfiguration struct {
 
 // SEVPlatformInfo contains information about the AMD SEV features for the node.
 //
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type SEVPlatformInfo struct {
 	metav1.TypeMeta `json:",inline"`
 	// Base64 encoded platform Diffie-Hellman key.
@@ -3841,7 +3831,6 @@ type SEVPlatformInfo struct {
 
 // SEVMeasurementInfo contains information about the guest launch measurement.
 //
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type SEVMeasurementInfo struct {
 	metav1.TypeMeta `json:",inline"`
 	// Base64 encoded launch measurement of the SEV guest.
@@ -3876,7 +3865,6 @@ type SEVSecretOptions struct {
 
 // ObjectGraphNode represents an individual node in the graph.
 //
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type ObjectGraphNode struct {
 	metav1.TypeMeta `json:",inline"`
 	ObjectReference k8sv1.TypedObjectReference `json:"objectReference"`

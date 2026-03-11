@@ -1,0 +1,2 @@
+FROM quay.io/kubevirt/virt-api:v1.7.0
+COPY _out/cmd/virt-api/virt-api-v1.7.0-linux-amd64 /usr/bin/virt-api

@@ -1,0 +1,15 @@
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: test-vm
+  namespace: default
+spec:
+  running: false
+  template:
+    spec:
+      domain:
+        devices: {}
+        resources:
+          requests:
+            memory: 64M
+      volumes: []

@@ -105,6 +105,11 @@ func AddKnownTypesGenerator(groupVersions []schema.GroupVersion) func(scheme *ru
 				&VirtualMachineList{},
 				&KubeVirt{},
 				&KubeVirtList{},
+				&StartOptions{},
+				&StopOptions{},
+				&RestartOptions{},
+				&PauseOptions{},
+				&UnpauseOptions{},
 			)
 			metav1.AddToGroupVersion(scheme, groupVersion)
 		}

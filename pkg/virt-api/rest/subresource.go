@@ -361,3 +361,7 @@ func decodeBody(request *restful.Request, bodyStruct interface{}) *errors.Status
 		return errors.NewBadRequest(fmt.Sprintf(unmarshalRequestErrFmt, err))
 	}
 }
+
+func (app *SubresourceAPIApp) GetVirtHandlerConnForVMI() func(*v1.VirtualMachineInstance) (kubecli.VirtHandlerConn, error) {
+    return app.getVirtHandlerConnForVMI
+}

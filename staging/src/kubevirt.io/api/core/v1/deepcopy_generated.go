@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	types "k8s.io/apimachinery/pkg/types"
 	v1alpha1 "kubevirt.io/api/backup/v1alpha1"
 )
@@ -7267,6 +7268,74 @@ func (in *WatchdogDevice) DeepCopy() *WatchdogDevice {
 		return nil
 	}
 	out := new(WatchdogDevice)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *StartOptions) DeepCopyObject() runtime.Object {
+	if in == nil {
+		return nil
+	}
+	out := new(StartOptions)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *StopOptions) DeepCopyObject() runtime.Object {
+	if in == nil {
+		return nil
+	}
+	out := new(StopOptions)
+	in.DeepCopyInto(out)
+	return out
+}
+
+//created deepcopy
+func (in *RestartOptions) DeepCopyObject() runtime.Object {
+	if in == nil {
+		return nil
+	}
+	out := new(RestartOptions)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *PauseOptions) DeepCopyObject() runtime.Object {
+	if in == nil {
+		return nil
+	}
+	out := new(PauseOptions)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *UnpauseOptions) DeepCopyObject() runtime.Object {
+	if in == nil {
+		return nil
+	}
+	out := new(UnpauseOptions)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *MigrateOptions) DeepCopyObject() runtime.Object {
+	if in == nil {
+		return nil
+	}
+	out := new(MigrateOptions)
+	in.DeepCopyInto(out)
+	return out
+}
+
+func (in *FreezeUnfreezeTimeout) GetObjectKind() schema.ObjectKind {
+	return schema.EmptyObjectKind
+}
+
+func (in *FreezeUnfreezeTimeout) DeepCopyObject() runtime.Object {
+	if in == nil {
+		return nil
+	}
+	out := new(FreezeUnfreezeTimeout)
 	in.DeepCopyInto(out)
 	return out
 }

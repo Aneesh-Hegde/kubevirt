@@ -50,7 +50,9 @@ import (
 
 	"kubevirt.io/kubevirt/pkg/util/ratelimiter"
 
-	backupv1 "kubevirt.io/api/backup/v1alpha1"
+	// backupv1 "kubevirt.io/api/backup/v1alpha1"
+	k8srest "k8s.io/apiserver/pkg/registry/rest"
+
 	v1 "kubevirt.io/api/core/v1"
 	"kubevirt.io/client-go/kubecli"
 	"kubevirt.io/client-go/log"
@@ -79,6 +81,9 @@ import (
 	virtconfig "kubevirt.io/kubevirt/pkg/virt-config"
 	"kubevirt.io/kubevirt/pkg/virt-operator/resource/generate/components"
 	virtoperatorutils "kubevirt.io/kubevirt/pkg/virt-operator/util"
+	genericapiserver "k8s.io/apiserver/pkg/server"
+	apiservercompatibility "k8s.io/apiserver/pkg/util/compatibility"
+openapinamer "k8s.io/apiserver/pkg/endpoints/openapi"
 )
 
 const (
@@ -142,6 +147,7 @@ type virtAPIApp struct {
 	reInitChan chan string
 
 	kubeVirtServiceAccounts map[string]struct{}
+	subresourceApp          *rest.SubresourceAPIApp
 }
 
 var (
@@ -226,6 +232,69 @@ func subresourceAPIGroup() metav1.APIGroup {
 	return apiGroup
 }
 
+func (app *virtAPIApp) installKubeVirtAPIGroup() error {
+	connFactory := app.subresourceApp.GetVirtHandlerConnForVMI()
+
+	apiGroupInfo := genericapiserver.NewDefaultAPIGroupInfo(
+		v1.SchemeGroupVersion.Group,
+		Scheme,
+		metav1.ParameterCodec,
+		Codecs,
+	)
+	apiGroupInfo.VersionedResourcesStorageMap["v1"] = map[string]k8srest.Storage{
+		"virtualmachines":         rest.NewVirtualMachineREST(app.virtCli),
+		"virtualmachineinstances": rest.NewVirtualMachineInstanceREST(app.virtCli),
+		"virtualmachines/start":              rest.NewStartREST(app.virtCli),
+		"virtualmachines/stop":               rest.NewStopREST(app.virtCli),
+		"virtualmachines/restart":            rest.NewRestartREST(app.virtCli),
+		"virtualmachines/migrate":            rest.NewMigrateREST(app.virtCli),
+		"virtualmachineinstances/pause":      rest.NewPauseREST(app.virtCli, connFactory),
+		"virtualmachineinstances/unpause":    rest.NewUnpauseREST(app.virtCli, connFactory),
+		"virtualmachineinstances/freeze":     rest.NewFreezeREST(app.virtCli, connFactory),
+		"virtualmachineinstances/unfreeze":   rest.NewUnfreezeREST(app.virtCli, connFactory),
+		"virtualmachineinstances/softreboot": rest.NewSoftRebootREST(app.virtCli, connFactory),
+		"virtualmachineinstances/reset":      rest.NewResetREST(app.virtCli, connFactory),
+	}
+
+	recommendedConfig := genericapiserver.NewRecommendedConfig(Codecs)
+	recommendedConfig.ExternalAddress = fmt.Sprintf("%s:%d", app.BindAddress, app.Port)
+	recommendedConfig.ClientConfig = app.virtCli.Config()
+	recommendedConfig.LoopbackClientConfig = app.virtCli.Config()
+	recommendedConfig.EffectiveVersion = apiservercompatibility.DefaultBuildEffectiveVersion()
+
+	namer := openapinamer.NewDefinitionNamer(Scheme)
+	recommendedConfig.OpenAPIConfig = genericapiserver.DefaultOpenAPIConfig(
+		v12.GetOpenAPIDefinitions,
+		namer,
+	)
+	recommendedConfig.OpenAPIConfig.Info.Title = "KubeVirt"
+	recommendedConfig.OpenAPIConfig.Info.Version = "v1"
+	recommendedConfig.OpenAPIV3Config = genericapiserver.DefaultOpenAPIV3Config(
+		v12.GetOpenAPIDefinitions,
+		namer,
+	)
+	recommendedConfig.OpenAPIV3Config.Info.Title = "KubeVirt"
+	recommendedConfig.OpenAPIV3Config.Info.Version = "v1"
+
+	completedConfig := recommendedConfig.Complete()
+	genericServer, err := completedConfig.New(
+		"kubevirt-lifecycle-apiserver",
+		genericapiserver.NewEmptyDelegate(),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create generic server: %v", err)
+	}
+
+	if err := genericServer.InstallAPIGroup(&apiGroupInfo); err != nil {
+		return fmt.Errorf("failed to install API group: %v", err)
+	}
+
+	http.Handle("/apis/kubevirt.io/", genericServer.Handler)
+
+	log.Log.Infof("Installed kubevirt.io API group via k8s apiserver REST storage")
+	return nil
+}
+
 func (app *virtAPIApp) composeSubresources() {
 
 	var subwss []*restful.WebService
@@ -240,120 +309,123 @@ func (app *virtAPIApp) composeSubresources() {
 		subws.Path(definitions.GroupVersionBasePath(version))
 
 		subresourceApp := rest.NewSubresourceAPIApp(app.virtCli, app.consoleServerPort, app.handlerTLSConfiguration, app.clusterConfig)
+		if app.subresourceApp == nil {
+			app.subresourceApp = subresourceApp
+		}
 
-		restartRouteBuilder := subws.PUT(definitions.NamespacedResourcePath(subresourcesvmGVR)+definitions.SubResourcePath("restart")).
-			To(subresourceApp.RestartVMRequestHandler).
-			Consumes(mime.MIME_ANY).
-			Reads(v1.RestartOptions{}).
-			Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
-			Operation(version.Version+"Restart").
-			Doc("Restart a VirtualMachine object.").
-			Returns(http.StatusOK, "OK", "").
-			Returns(http.StatusNotFound, httpStatusNotFoundMessage, "").
-			Returns(http.StatusBadRequest, httpStatusBadRequestMessage, "")
-		restartRouteBuilder.ParameterNamed("body").Required(false)
-		subws.Route(restartRouteBuilder)
-
-		subws.Route(subws.PUT(definitions.NamespacedResourcePath(subresourcesvmGVR)+definitions.SubResourcePath("migrate")).
-			To(subresourceApp.MigrateVMRequestHandler).
-			Consumes(mime.MIME_ANY).
-			Reads(v1.MigrateOptions{}).
-			Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
-			Operation(version.Version+"Migrate").
-			Doc("Migrate a running VirtualMachine to another node.").
-			Returns(http.StatusOK, "OK", "").
-			Returns(http.StatusNotFound, httpStatusNotFoundMessage, "").
-			Returns(http.StatusBadRequest, httpStatusBadRequestMessage, ""))
-
-		subws.Route(subws.PUT(definitions.NamespacedResourcePath(subresourcesvmGVR)+definitions.SubResourcePath("start")).
-			To(subresourceApp.StartVMRequestHandler).
-			Consumes(mime.MIME_ANY).
-			Reads(v1.StartOptions{}).
-			Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
-			Operation(version.Version+"Start").
-			Doc("Start a VirtualMachine object.").
-			Returns(http.StatusOK, "OK", "").
-			Returns(http.StatusNotFound, httpStatusNotFoundMessage, "").
-			Returns(http.StatusBadRequest, httpStatusBadRequestMessage, ""))
-
-		stopRouteBuilder := subws.PUT(definitions.NamespacedResourcePath(subresourcesvmGVR)+definitions.SubResourcePath("stop")).
-			To(subresourceApp.StopVMRequestHandler).
-			Consumes(mime.MIME_ANY).
-			Reads(v1.StopOptions{}).
-			Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
-			Operation(version.Version+"Stop").
-			Doc("Stop a VirtualMachine object.").
-			Returns(http.StatusOK, "OK", "").
-			Returns(http.StatusNotFound, httpStatusNotFoundMessage, "").
-			Returns(http.StatusBadRequest, httpStatusBadRequestMessage, "")
-		stopRouteBuilder.ParameterNamed("body").Required(false)
-		subws.Route(stopRouteBuilder)
-
-		subws.Route(subws.GET(definitions.NamespacedResourcePath(subresourcesvmGVR)+definitions.SubResourcePath("expand-spec")).
-			To(subresourceApp.ExpandSpecVMRequestHandler).
-			Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
-			Operation(version.Version+"vm-ExpandSpec").
-			Produces(restful.MIME_JSON).
-			Doc("Get VirtualMachine object with expanded instancetype and preference.").
-			Returns(http.StatusOK, "OK", "").
-			Returns(http.StatusNotFound, httpStatusNotFoundMessage, "").
-			Returns(http.StatusInternalServerError, httpStatusInternalServerError, ""))
-
-		subws.Route(subws.PUT(definitions.NamespacedResourcePath(subresourcesvmiGVR)+definitions.SubResourcePath("freeze")).
-			To(subresourceApp.FreezeVMIRequestHandler).
-			Consumes(mime.MIME_ANY).
-			Reads(v1.FreezeUnfreezeTimeout{}).
-			Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
-			Operation(version.Version+"Freeze").
-			Doc("Freeze a VirtualMachineInstance object.").
-			Returns(http.StatusOK, "OK", "").
-			Returns(http.StatusInternalServerError, httpStatusInternalServerError, ""))
-
-		subws.Route(subws.PUT(definitions.NamespacedResourcePath(subresourcesvmiGVR)+definitions.SubResourcePath("unfreeze")).
-			To(subresourceApp.UnfreezeVMIRequestHandler).
-			Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
-			Operation(version.Version+"Unfreeze").
-			Doc("Unfreeze a VirtualMachineInstance object.").
-			Returns(http.StatusOK, "OK", "").
-			Returns(http.StatusInternalServerError, httpStatusInternalServerError, ""))
-
-		subws.Route(subws.PUT(definitions.NamespacedResourcePath(subresourcesvmiGVR)+definitions.SubResourcePath("reset")).
-			To(subresourceApp.ResetVMIRequestHandler).
-			Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
-			Operation(version.Version+"Reset").
-			Doc("Reset a VirtualMachineInstance object.").
-			Returns(http.StatusOK, "OK", "").
-			Returns(http.StatusInternalServerError, httpStatusInternalServerError, ""))
-
-		subws.Route(subws.PUT(definitions.NamespacedResourcePath(subresourcesvmiGVR)+definitions.SubResourcePath("softreboot")).
-			To(subresourceApp.SoftRebootVMIRequestHandler).
-			Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
-			Operation(version.Version+"SoftReboot").
-			Doc("Soft reboot a VirtualMachineInstance object.").
-			Returns(http.StatusOK, "OK", "").
-			Returns(http.StatusInternalServerError, httpStatusInternalServerError, ""))
-
-		subws.Route(subws.PUT(definitions.NamespacedResourcePath(subresourcesvmiGVR)+definitions.SubResourcePath("pause")).
-			To(subresourceApp.PauseVMIRequestHandler).
-			Consumes(mime.MIME_ANY).
-			Reads(v1.PauseOptions{}).
-			Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
-			Operation(version.Version+"Pause").
-			Doc("Pause a VirtualMachineInstance object.").
-			Returns(http.StatusOK, "OK", "").
-			Returns(http.StatusNotFound, httpStatusNotFoundMessage, "").
-			Returns(http.StatusBadRequest, httpStatusBadRequestMessage, ""))
-
-		subws.Route(subws.PUT(definitions.NamespacedResourcePath(subresourcesvmiGVR)+definitions.SubResourcePath("unpause")).
-			To(subresourceApp.UnpauseVMIRequestHandler). // handles VMIs as well
-			Consumes(mime.MIME_ANY).
-			Reads(v1.UnpauseOptions{}).
-			Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
-			Operation(version.Version+"Unpause").
-			Doc("Unpause a VirtualMachineInstance object.").
-			Returns(http.StatusOK, "OK", "").
-			Returns(http.StatusNotFound, httpStatusNotFoundMessage, "").
-			Returns(http.StatusBadRequest, httpStatusBadRequestMessage, ""))
+		// restartRouteBuilder := subws.PUT(definitions.NamespacedResourcePath(subresourcesvmGVR)+definitions.SubResourcePath("restart")).
+		// 	To(subresourceApp.RestartVMRequestHandler).
+		// 	Consumes(mime.MIME_ANY).
+		// 	Reads(v1.RestartOptions{}).
+		// 	Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
+		// 	Operation(version.Version+"Restart").
+		// 	Doc("Restart a VirtualMachine object.").
+		// 	Returns(http.StatusOK, "OK", "").
+		// 	Returns(http.StatusNotFound, httpStatusNotFoundMessage, "").
+		// 	Returns(http.StatusBadRequest, httpStatusBadRequestMessage, "")
+		// restartRouteBuilder.ParameterNamed("body").Required(false)
+		// subws.Route(restartRouteBuilder)
+		//
+		// subws.Route(subws.PUT(definitions.NamespacedResourcePath(subresourcesvmGVR)+definitions.SubResourcePath("migrate")).
+		// 	To(subresourceApp.MigrateVMRequestHandler).
+		// 	Consumes(mime.MIME_ANY).
+		// 	Reads(v1.MigrateOptions{}).
+		// 	Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
+		// 	Operation(version.Version+"Migrate").
+		// 	Doc("Migrate a running VirtualMachine to another node.").
+		// 	Returns(http.StatusOK, "OK", "").
+		// 	Returns(http.StatusNotFound, httpStatusNotFoundMessage, "").
+		// 	Returns(http.StatusBadRequest, httpStatusBadRequestMessage, ""))
+		//
+		// subws.Route(subws.PUT(definitions.NamespacedResourcePath(subresourcesvmGVR)+definitions.SubResourcePath("start")).
+		// 	To(subresourceApp.StartVMRequestHandler).
+		// 	Consumes(mime.MIME_ANY).
+		// 	Reads(v1.StartOptions{}).
+		// 	Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
+		// 	Operation(version.Version+"Start").
+		// 	Doc("Start a VirtualMachine object.").
+		// 	Returns(http.StatusOK, "OK", "").
+		// 	Returns(http.StatusNotFound, httpStatusNotFoundMessage, "").
+		// 	Returns(http.StatusBadRequest, httpStatusBadRequestMessage, ""))
+		//
+		// stopRouteBuilder := subws.PUT(definitions.NamespacedResourcePath(subresourcesvmGVR)+definitions.SubResourcePath("stop")).
+		// 	To(subresourceApp.StopVMRequestHandler).
+		// 	Consumes(mime.MIME_ANY).
+		// 	Reads(v1.StopOptions{}).
+		// 	Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
+		// 	Operation(version.Version+"Stop").
+		// 	Doc("Stop a VirtualMachine object.").
+		// 	Returns(http.StatusOK, "OK", "").
+		// 	Returns(http.StatusNotFound, httpStatusNotFoundMessage, "").
+		// 	Returns(http.StatusBadRequest, httpStatusBadRequestMessage, "")
+		// stopRouteBuilder.ParameterNamed("body").Required(false)
+		// subws.Route(stopRouteBuilder)
+		//
+		// subws.Route(subws.GET(definitions.NamespacedResourcePath(subresourcesvmGVR)+definitions.SubResourcePath("expand-spec")).
+		// 	To(subresourceApp.ExpandSpecVMRequestHandler).
+		// 	Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
+		// 	Operation(version.Version+"vm-ExpandSpec").
+		// 	Produces(restful.MIME_JSON).
+		// 	Doc("Get VirtualMachine object with expanded instancetype and preference.").
+		// 	Returns(http.StatusOK, "OK", "").
+		// 	Returns(http.StatusNotFound, httpStatusNotFoundMessage, "").
+		// 	Returns(http.StatusInternalServerError, httpStatusInternalServerError, ""))
+		//
+		// subws.Route(subws.PUT(definitions.NamespacedResourcePath(subresourcesvmiGVR)+definitions.SubResourcePath("freeze")).
+		// 	To(subresourceApp.FreezeVMIRequestHandler).
+		// 	Consumes(mime.MIME_ANY).
+		// 	Reads(v1.FreezeUnfreezeTimeout{}).
+		// 	Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
+		// 	Operation(version.Version+"Freeze").
+		// 	Doc("Freeze a VirtualMachineInstance object.").
+		// 	Returns(http.StatusOK, "OK", "").
+		// 	Returns(http.StatusInternalServerError, httpStatusInternalServerError, ""))
+		//
+		// subws.Route(subws.PUT(definitions.NamespacedResourcePath(subresourcesvmiGVR)+definitions.SubResourcePath("unfreeze")).
+		// 	To(subresourceApp.UnfreezeVMIRequestHandler).
+		// 	Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
+		// 	Operation(version.Version+"Unfreeze").
+		// 	Doc("Unfreeze a VirtualMachineInstance object.").
+		// 	Returns(http.StatusOK, "OK", "").
+		// 	Returns(http.StatusInternalServerError, httpStatusInternalServerError, ""))
+		//
+		// subws.Route(subws.PUT(definitions.NamespacedResourcePath(subresourcesvmiGVR)+definitions.SubResourcePath("reset")).
+		// 	To(subresourceApp.ResetVMIRequestHandler).
+		// 	Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
+		// 	Operation(version.Version+"Reset").
+		// 	Doc("Reset a VirtualMachineInstance object.").
+		// 	Returns(http.StatusOK, "OK", "").
+		// 	Returns(http.StatusInternalServerError, httpStatusInternalServerError, ""))
+		//
+		// subws.Route(subws.PUT(definitions.NamespacedResourcePath(subresourcesvmiGVR)+definitions.SubResourcePath("softreboot")).
+		// 	To(subresourceApp.SoftRebootVMIRequestHandler).
+		// 	Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
+		// 	Operation(version.Version+"SoftReboot").
+		// 	Doc("Soft reboot a VirtualMachineInstance object.").
+		// 	Returns(http.StatusOK, "OK", "").
+		// 	Returns(http.StatusInternalServerError, httpStatusInternalServerError, ""))
+		//
+		// subws.Route(subws.PUT(definitions.NamespacedResourcePath(subresourcesvmiGVR)+definitions.SubResourcePath("pause")).
+		// 	To(subresourceApp.PauseVMIRequestHandler).
+		// 	Consumes(mime.MIME_ANY).
+		// 	Reads(v1.PauseOptions{}).
+		// 	Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
+		// 	Operation(version.Version+"Pause").
+		// 	Doc("Pause a VirtualMachineInstance object.").
+		// 	Returns(http.StatusOK, "OK", "").
+		// 	Returns(http.StatusNotFound, httpStatusNotFoundMessage, "").
+		// 	Returns(http.StatusBadRequest, httpStatusBadRequestMessage, ""))
+		//
+		// subws.Route(subws.PUT(definitions.NamespacedResourcePath(subresourcesvmiGVR)+definitions.SubResourcePath("unpause")).
+		// 	To(subresourceApp.UnpauseVMIRequestHandler). // handles VMIs as well
+		// 	Consumes(mime.MIME_ANY).
+		// 	Reads(v1.UnpauseOptions{}).
+		// 	Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
+		// 	Operation(version.Version+"Unpause").
+		// 	Doc("Unpause a VirtualMachineInstance object.").
+		// 	Returns(http.StatusOK, "OK", "").
+		// 	Returns(http.StatusNotFound, httpStatusNotFoundMessage, "").
+		// 	Returns(http.StatusBadRequest, httpStatusBadRequestMessage, ""))
 
 		subws.Route(subws.GET(definitions.NamespacedResourcePath(subresourcesvmiGVR) + definitions.SubResourcePath("console")).
 			To(subresourceApp.ConsoleRequestHandler).
@@ -633,27 +705,27 @@ func (app *virtAPIApp) composeSubresources() {
 			Returns(http.StatusBadRequest, httpStatusBadRequestMessage, "").
 			Returns(http.StatusInternalServerError, httpStatusInternalServerError, ""))
 
-		subws.Route(subws.PUT(definitions.NamespacedResourcePath(subresourcesvmiGVR)+definitions.SubResourcePath("backup")).
-			To(subresourceApp.BackupVMIRequestHandler).
-			Consumes(mime.MIME_ANY).
-			Reads(backupv1.BackupOptions{}).
-			Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
-			Operation(version.Version+"Backup").
-			Doc("Initiate a VirtualMachineInstance backup.").
-			Returns(http.StatusOK, "OK", "").
-			Returns(http.StatusNotFound, httpStatusNotFoundMessage, "").
-			Returns(http.StatusBadRequest, httpStatusBadRequestMessage, ""))
-
-		subws.Route(subws.PUT(definitions.NamespacedResourcePath(subresourcesvmiGVR)+definitions.SubResourcePath("redefine-checkpoint")).
-			To(subresourceApp.RedefineCheckpointVMIRequestHandler).
-			Consumes(mime.MIME_ANY).
-			Reads(backupv1.BackupCheckpoint{}).
-			Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
-			Operation(version.Version+"RedefineCheckpoint").
-			Doc("Redefine a checkpoint for a VirtualMachineInstance.").
-			Returns(http.StatusOK, "OK", "").
-			Returns(http.StatusNotFound, httpStatusNotFoundMessage, "").
-			Returns(http.StatusBadRequest, httpStatusBadRequestMessage, ""))
+		// subws.Route(subws.PUT(definitions.NamespacedResourcePath(subresourcesvmiGVR)+definitions.SubResourcePath("backup")).
+		// 	To(subresourceApp.BackupVMIRequestHandler).
+		// 	Consumes(mime.MIME_ANY).
+		// 	Reads(backupv1.BackupOptions{}).
+		// 	Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
+		// 	Operation(version.Version+"Backup").
+		// 	Doc("Initiate a VirtualMachineInstance backup.").
+		// 	Returns(http.StatusOK, "OK", "").
+		// 	Returns(http.StatusNotFound, httpStatusNotFoundMessage, "").
+		// 	Returns(http.StatusBadRequest, httpStatusBadRequestMessage, ""))
+		//
+		// subws.Route(subws.PUT(definitions.NamespacedResourcePath(subresourcesvmiGVR)+definitions.SubResourcePath("redefine-checkpoint")).
+		// 	To(subresourceApp.RedefineCheckpointVMIRequestHandler).
+		// 	Consumes(mime.MIME_ANY).
+		// 	Reads(backupv1.BackupCheckpoint{}).
+		// 	Param(definitions.NamespaceParam(subws)).Param(definitions.NameParam(subws)).
+		// 	Operation(version.Version+"RedefineCheckpoint").
+		// 	Doc("Redefine a checkpoint for a VirtualMachineInstance.").
+		// 	Returns(http.StatusOK, "OK", "").
+		// 	Returns(http.StatusNotFound, httpStatusNotFoundMessage, "").
+		// 	Returns(http.StatusBadRequest, httpStatusBadRequestMessage, ""))
 
 		// Return empty api resource list.
 		// K8s expects to be able to retrieve a resource list for each aggregated
@@ -880,7 +952,9 @@ func (app *virtAPIApp) composeSubresources() {
 func (app *virtAPIApp) Compose() {
 
 	app.composeSubresources()
-
+	if err:= app.installKubeVirtAPIGroup();err !=nil{
+		panic(fmt.Errorf("failed to install kubevirt api group :%v",err))
+	}
 	restful.Filter(filter.RequestLoggingFilter())
 	restful.Filter(restful.OPTIONSFilter())
 	restful.Filter(func(req *restful.Request, resp *restful.Response, chain *restful.FilterChain) {
@@ -1198,7 +1272,7 @@ func (app *virtAPIApp) Run() {
 	crdInformer := kubeInformerFactory.CRD()
 	vmiPresetInformer := kubeInformerFactory.VirtualMachinePreset()
 	vmRestoreInformer := kubeInformerFactory.VirtualMachineRestore()
-	vmBackupInformer := kubeInformerFactory.VirtualMachineBackup()
+	//vmBackupInformer := kubeInformerFactory.VirtualMachineBackup()
 	namespaceInformer := kubeInformerFactory.Namespace()
 
 	stopChan := make(chan struct{}, 1)
@@ -1236,7 +1310,7 @@ func (app *virtAPIApp) Run() {
 	webhookInformers := &webhooks.Informers{
 		VMIPresetInformer:  vmiPresetInformer,
 		VMRestoreInformer:  vmRestoreInformer,
-		VMBackupInformer:   vmBackupInformer,
+		//VMBackupInformer:   vmBackupInformer,
 		DataSourceInformer: dataSourceInformer,
 		NamespaceInformer:  namespaceInformer,
 	}
