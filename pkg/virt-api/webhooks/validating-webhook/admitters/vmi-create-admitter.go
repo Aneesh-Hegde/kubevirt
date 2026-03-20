@@ -216,8 +216,6 @@ func ValidateVirtualMachineInstanceSpec(field *k8sfield.Path, spec *v1.VirtualMa
 
 	causes = append(causes, validateDomainSpec(field.Child("domain"), &spec.Domain)...)
 	causes = append(causes, validateVolumes(field.Child("volumes"), spec.Volumes, config)...)
-	causes = append(causes, storageadmitters.ValidateContainerDisks(field, spec)...)
-	causes = append(causes, storageadmitters.ValidateUtilityVolumesNotPresentOnCreation(field, spec)...)
 
 	causes = append(causes, validateAccessCredentials(field.Child("accessCredentials"), spec.AccessCredentials, spec.Volumes)...)
 
@@ -1468,7 +1466,6 @@ func smmFeatureEnabled(features *v1.Features) bool {
 func validateDomainSpec(field *k8sfield.Path, spec *v1.DomainSpec) []metav1.StatusCause {
 	var causes []metav1.StatusCause
 
-	causes = append(causes, storageadmitters.ValidateDisks(field.Child("devices").Child("disks"), spec.Devices.Disks)...)
 	causes = append(causes, validateFirmware(field.Child("firmware"), spec.Firmware)...)
 
 	if secureBootEnabled(spec.Firmware) && !smmFeatureEnabled(spec.Features) {
