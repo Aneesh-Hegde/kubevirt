@@ -4315,7 +4315,10 @@ func withLivenessProbe(probe *v1.Probe) libvmi.Option {
 }
 
 func newValidateStub(statusCauses ...metav1.StatusCause) SpecValidator {
-	return func(_ *k8sfield.Path, _ *v1.VirtualMachineInstanceSpec, _ *virtconfig.ClusterConfig) []metav1.StatusCause {
-		return statusCauses
+	return SpecValidator{
+		Name: "Mock-Validator",
+		Validate: func(field *k8sfield.Path, spec *v1.VirtualMachineInstanceSpec, config *virtconfig.ClusterConfig) []metav1.StatusCause {
+			return statusCauses
+		},
 	}
 }

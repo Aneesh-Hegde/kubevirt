@@ -69,6 +69,7 @@ import (
 	mime "kubevirt.io/kubevirt/pkg/rest"
 	"kubevirt.io/kubevirt/pkg/rest/filter"
 	"kubevirt.io/kubevirt/pkg/service"
+	storageadmitters "kubevirt.io/kubevirt/pkg/storage/admitters"
 	"kubevirt.io/kubevirt/pkg/util"
 	"kubevirt.io/kubevirt/pkg/util/openapi"
 	"kubevirt.io/kubevirt/pkg/virt-api/definitions"
@@ -76,6 +77,7 @@ import (
 	"kubevirt.io/kubevirt/pkg/virt-api/webhooks"
 	mutating_webhook "kubevirt.io/kubevirt/pkg/virt-api/webhooks/mutating-webhook"
 	validating_webhook "kubevirt.io/kubevirt/pkg/virt-api/webhooks/validating-webhook"
+	"kubevirt.io/kubevirt/pkg/virt-api/webhooks/validating-webhook/admitters"
 	virtconfig "kubevirt.io/kubevirt/pkg/virt-config"
 	"kubevirt.io/kubevirt/pkg/virt-operator/resource/generate/components"
 	virtoperatorutils "kubevirt.io/kubevirt/pkg/virt-operator/util"
@@ -980,11 +982,40 @@ func (app *virtAPIApp) prepareCertManager() {
 	app.handlerCertManager = bootstrap.NewFileCertificateManager(app.handlerCertFilePath, app.handlerKeyFilePath)
 }
 
+func validateStorageVMICreate(field *field.Path, vmiSpec *v1.VirtualMachineInstanceSpec, clusterCfg *virtconfig.ClusterConfig) []metav1.StatusCause {
+	var causes []metav1.StatusCause
+
+	causes = append(causes, storageadmitters.ValidateContainerDisks(field, vmiSpec)...)
+	causes = append(causes, storageadmitters.ValidateUtilityVolumesNotPresentOnCreation(field, vmiSpec)...)
+	causes = append(causes, storageadmitters.ValidateDisks(field.Child("domain", "devices", "disks"), vmiSpec.Domain.Devices.Disks)...)
+
+	if vmiSpec.Domain.Firmware != nil && vmiSpec.Domain.Firmware.KernelBoot != nil && vmiSpec.Domain.Firmware.KernelBoot.Container != nil {
+		container := vmiSpec.Domain.Firmware.KernelBoot.Container
+		containerField := field.Child("domain", "firmware", "kernelBoot", "container")
+
+		if container.KernelPath != "" {
+			causes = append(causes, storageadmitters.ValidatePath(containerField.Child("kernelPath"), container.KernelPath)...)
+		}
+		if container.InitrdPath != "" {
+			causes = append(causes, storageadmitters.ValidatePath(containerField.Child("initrdPath"), container.InitrdPath)...)
+		}
+	}
+
+	return causes
+}
+
 func (app *virtAPIApp) registerValidatingWebhooks(informers *webhooks.Informers) {
 	http.HandleFunc(components.VMICreateValidatePath, func(w http.ResponseWriter, r *http.Request) {
 		validating_webhook.ServeVMICreate(w, r, app.clusterConfig, app.kubeVirtServiceAccounts,
-			func(field *field.Path, vmiSpec *v1.VirtualMachineInstanceSpec, clusterCfg *virtconfig.ClusterConfig) []metav1.StatusCause {
-				return netadmitter.Validate(field, vmiSpec, clusterCfg)
+			admitters.SpecValidator{
+				Name: "SIG-Network",
+				Validate: func(field *field.Path, vmiSpec *v1.VirtualMachineInstanceSpec, clusterCfg *virtconfig.ClusterConfig) []metav1.StatusCause {
+					return netadmitter.Validate(field, vmiSpec, clusterCfg)
+				},
+			},
+			admitters.SpecValidator{
+				Name:     "SIG-Storage",
+				Validate: validateStorageVMICreate,
 			},
 		)
 	})
