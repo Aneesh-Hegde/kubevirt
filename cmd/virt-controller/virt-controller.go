@@ -21,6 +21,7 @@ package main
 
 import (
 	"kubevirt.io/kubevirt/pkg/virt-controller/watch"
+	_ "kubevirt.io/kubevirt/pkg/storage/export/export"
 )
 
 func main() {
