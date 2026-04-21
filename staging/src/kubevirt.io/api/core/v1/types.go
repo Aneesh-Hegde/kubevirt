@@ -77,6 +77,7 @@ type StartStrategy string
 const (
 	StartStrategyPaused StartStrategy = "Paused"
 )
+const NetworkBandwidthLimiting = "NetworkBandwidthLimiting"
 
 // VirtualMachineInstanceSpec is a description of a VirtualMachineInstance.
 type VirtualMachineInstanceSpec struct {

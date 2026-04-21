@@ -1444,6 +1444,25 @@ func (t *TemplateService) generatePodAnnotations(vmi *v1.VirtualMachineInstance)
 	annotationsSet[v1.MigrationTransportUnixAnnotation] = "true"
 	annotationsSet[descheduler.EvictOnlyAnnotation] = ""
 
+	for _, iface := range vmi.Spec.Domain.Devices.Interfaces {
+		if iface.Bandwidth != nil {
+
+			// Translate VM Inbound to Pod Ingress Annotation
+			if iface.Bandwidth.Inbound != nil {
+				annotationsSet["kubernetes.io/ingress-bandwidth"] = iface.Bandwidth.Inbound.String()
+			}
+
+			// Translate VM Outbound to Pod Egress Annotation
+			if iface.Bandwidth.Outbound != nil {
+				annotationsSet["kubernetes.io/egress-bandwidth"] = iface.Bandwidth.Outbound.String()
+			}
+
+			// Note: We break after the first interface with bandwidth applied to prevent
+			// multiple interfaces from overwriting the single pod annotation.
+			break
+		}
+	}
+
 	for _, generator := range t.annotationsGenerators {
 		annotations, err := generator.Generate(vmi)
 		if err != nil {

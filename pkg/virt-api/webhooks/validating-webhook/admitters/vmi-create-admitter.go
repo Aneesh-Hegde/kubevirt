@@ -369,6 +369,37 @@ func validateInterfaceBootOrder(field *k8sfield.Path, spec *v1.VirtualMachineIns
 				bootOrderMap[order] = true
 			}
 		}
+		if iface.Bandwidth != nil {
+			ifaceField := field.Child("domain", "devices", "interfaces").Index(idx)
+			bandwidthField := ifaceField.Child("bandwidth")
+
+			// Check 1: Reject on unsupported interface types (SR-IOV / Macvtap bypass the CNI)
+			if iface.SRIOV != nil {
+				causes = append(causes, metav1.StatusCause{
+					Type:    metav1.CauseTypeFieldValueInvalid,
+					Message: "Bandwidth limiting is not supported for SR-IOV or Macvtap interfaces as they bypass the pod network",
+					Field:   bandwidthField.String(),
+				})
+			}
+
+			// Check 2: Reject negative or zero inbound values
+			if iface.Bandwidth.Inbound != nil && iface.Bandwidth.Inbound.Value() <= 0 {
+				causes = append(causes, metav1.StatusCause{
+					Type:    metav1.CauseTypeFieldValueInvalid,
+					Message: "Inbound bandwidth limit must be greater than 0",
+					Field:   bandwidthField.Child("inbound").String(),
+				})
+			}
+
+			// Check 3: Reject negative or zero outbound values
+			if iface.Bandwidth.Outbound != nil && iface.Bandwidth.Outbound.Value() <= 0 {
+				causes = append(causes, metav1.StatusCause{
+					Type:    metav1.CauseTypeFieldValueInvalid,
+					Message: "Outbound bandwidth limit must be greater than 0",
+					Field:   bandwidthField.Child("outbound").String(),
+				})
+			}
+		}
 	}
 
 	return causes

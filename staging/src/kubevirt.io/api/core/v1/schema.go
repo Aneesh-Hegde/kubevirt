@@ -1486,8 +1486,20 @@ type Interface struct {
 	// Empty value functions as `up`.
 	// +optional
 	State InterfaceState `json:"state,omitempty"`
+	// Bandwidth allows configuring network traffic shaping for this interface
+	// +optional
+	Bandwidth *Bandwidth `json:"bandwidth,omitempty"`
 }
 
+// Bandwidth defines the network bandwidth limits for an interface
+type Bandwidth struct {
+	// Inbound is the bandwidth limit for traffic entering the VM (download)
+	// +optional
+	Inbound *resource.Quantity `json:"inbound,omitempty"`
+	// Outbound is the bandwidth limit for traffic leaving the VM (upload)
+	// +optional
+	Outbound *resource.Quantity `json:"outbound,omitempty"`
+}
 type InterfaceState string
 
 const (
